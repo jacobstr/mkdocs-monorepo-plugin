@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0 (Unreleased)
+
+- Added support for partial nav inclusion using anchor syntax (`!include path/to/mkdocs.yml#SectionName`)
+- Added unique alias generation for anchored includes to prevent naming conflicts
+
 ## 1.1.2
 
 - Dropped official support for Python 3.8
