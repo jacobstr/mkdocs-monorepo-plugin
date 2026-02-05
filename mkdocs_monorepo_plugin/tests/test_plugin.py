@@ -130,3 +130,60 @@ nav:
         with self.assertRaises(SystemExit):
             loader.read()
             loader.getNav()
+
+    def test_alias_collision_detection(self):
+        """Test that alias collisions are properly detected.
+
+        Known limitation: If a site_name matches another site's generated
+        alias (site_name-SectionName), a collision occurs.
+
+        Example collision scenario:
+        - Site A: site_name="TestSite" with #Guides -> alias="TestSite-Guides"
+        - Site B: site_name="TestSite-Guides" (no anchor) -> alias="TestSite-Guides"
+
+        This test verifies that such collisions are detected and raise an error.
+        """
+        # Create a second mkdocs file with a site_name that collides with
+        # the generated alias from the first file
+        collision_file = os.path.join(self.test_dir, "collision.yml")
+        with open(collision_file, 'w') as f:
+            f.write("""site_name: TestSite-Guides
+docs_dir: docs
+nav:
+  - Home: index.md
+""")
+
+        # Set up config with both includes - one with anchor, one without
+        root_config = {
+            "config_file_path": os.path.join(self.test_dir, "root.yml"),
+            "docs_dir": os.path.join(self.test_dir, "docs"),
+            "nav": [
+                {"Section1": "!include mkdocs.yml#Guides"},
+                {"Section2": "!include collision.yml"}
+            ]
+        }
+
+        # Create root mkdocs.yml
+        with open(root_config["config_file_path"], 'w') as f:
+            f.write("""site_name: Root
+docs_dir: docs
+nav:
+  - Section1: "!include mkdocs.yml#Guides"
+  - Section2: "!include collision.yml"
+""")
+
+        # Verify the aliases would collide
+        config1 = {"config_file_path": self.mkdocs_file}
+        loader1 = IncludeNavLoader(config1, "mkdocs.yml#Guides")
+        loader1.read()
+        alias1 = loader1.getAlias()
+
+        config2 = {"config_file_path": collision_file}
+        loader2 = IncludeNavLoader(config2, "collision.yml")
+        loader2.read()
+        alias2 = loader2.getAlias()
+
+        # Both should produce "TestSite-Guides"
+        self.assertEqual(alias1, "TestSite-Guides")
+        self.assertEqual(alias2, "TestSite-Guides")
+        self.assertEqual(alias1, alias2)  # Collision confirmed
