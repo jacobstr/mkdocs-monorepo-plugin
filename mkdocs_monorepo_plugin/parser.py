@@ -73,10 +73,12 @@ class Parser:
         def extractAliasAndPath(absPath):
             loader = IncludeNavLoader(self.config, absPath).read()
             alias = loader.getAlias()
+            # Use the actual navPath (without anchor) for directory calculations
+            actualPath = loader.navPath
             docsDir = os.path.join(
-                loader.rootDir, os.path.dirname(absPath), loader.getDocsDir()
+                loader.rootDir, os.path.dirname(actualPath), loader.getDocsDir()
             )
-            return [alias, docsDir, os.path.join(loader.rootDir, absPath)]
+            return [alias, docsDir, os.path.join(loader.rootDir, actualPath)]
 
         resolvedPaths = list(
             map(extractAliasAndPath, self.__loadAliasesAndResolvedPaths())
@@ -172,7 +174,12 @@ class IncludeNavLoader:
         self.rootDir = os.path.normpath(
             os.path.join(os.getcwd(), config["config_file_path"], "../")
         )
-        self.navPath = navPath
+        # Parse navPath for anchor (e.g., "path/to/mkdocs.yml#Guides")
+        if "#" in navPath:
+            self.navPath, self.navSection = navPath.split("#", 1)
+        else:
+            self.navPath = navPath
+            self.navSection = None
         self.absNavPath = os.path.normpath(os.path.join(self.rootDir, self.navPath))
         self.navYaml = None
         # Track ancestor paths to detect cycles
@@ -285,15 +292,42 @@ class IncludeNavLoader:
 
     def getAlias(self):
         alias = self.navYaml["site_name"]
+
+        # If a section is specified, append it to the alias to make it unique
+        if self.navSection:
+            alias = f"{alias}-{self.navSection}"
+
         regex = "^[a-zA-Z0-9_\.\-/]+$"  # noqa: W605
 
         if re.match(regex, alias) is None:
-            alias = slugify(self.navYaml["site_name"])
+            alias = slugify(alias)
 
         return alias
 
     def getNav(self):
-        return self._prependAliasToNavLinks(self.getAlias(), self.navYaml["nav"])
+        nav = self.navYaml["nav"]
+
+        # If a section is specified, extract only that section
+        if self.navSection:
+            nav = self._extractNavSection(nav, self.navSection)
+            if nav is None:
+                log.critical(
+                    f"[mkdocs-monorepo] Could not find nav section '{self.navSection}' "
+                    f"in {self.absNavPath}"
+                )
+                raise SystemExit(1)
+
+        return self._prependAliasToNavLinks(self.getAlias(), nav)
+
+    def _extractNavSection(self, nav, section_name):
+        """Extract a specific section from the nav by its name."""
+        for item in nav:
+            if isinstance(item, dict):
+                key = list(item.keys())[0]
+                if key == section_name:
+                    # Return the contents of this section
+                    return item[key]
+        return None
 
     def _prependAliasToNavLinks(self, alias, nav):
         for index, item in enumerate(nav):
